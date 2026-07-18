@@ -1,59 +1,269 @@
-<div>Teachable Machine Image Model</div>
-<button type="button" onclick="init()">Start</button>
-<div id="webcam-container"></div>
-<div id="label-container"></div>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-<script type="text/javascript">
-    // More API functions here:
-    // https://github.com/googlecreativelab/teachablemachine-community/tree/master/libraries/image
-
-    // the link to your model provided by Teachable Machine export panel
-    const URL = "https://teachablemachine.withgoogle.com/models/RvhIhkIP-W/";
-
-    let model, webcam, labelContainer, maxPredictions;
-
-    // Load the image model and setup the webcam
-    async function init() {
-        const modelURL = URL + "model.json";
-        const metadataURL = URL + "metadata.json";
-
-        // load the model and metadata
-        // Refer to tmImage.loadFromFiles() in the API to support files from a file picker
-        // or files from your local hard drive
-        // Note: the pose library adds "tmImage" object to your window (window.tmImage)
-        model = await tmImage.load(modelURL, metadataURL);
-        maxPredictions = model.getTotalClasses();
-
-        // Convenience function to setup a webcam
-        const flip = true; // whether to flip the webcam
-        webcam = new tmImage.Webcam(200, 200, flip); // width, height, flip
-        await webcam.setup(); // request access to the webcam
-        await webcam.play();
-        window.requestAnimationFrame(loop);
-
-        // append elements to the DOM
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        labelContainer = document.getElementById("label-container");
-        for (let i = 0; i < maxPredictions; i++) { // and class labels
-            labelContainer.appendChild(document.createElement("div"));
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Image Classification Dashboard</title>
+    <!-- Google Fonts & Tailwind CSS for Modern UI -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
         }
-    }
-
-    async function loop() {
-        webcam.update(); // update the webcam frame
-        await predict();
-        window.requestAnimationFrame(loop);
-    }
-
-    // run the webcam image through the image model
-    async function predict() {
-        // predict can take in an image, video or canvas html element
-        const prediction = await model.predict(webcam.canvas);
-        for (let i = 0; i < maxPredictions; i++) {
-            const classPrediction =
-                prediction[i].className + ": " + prediction[i].probability.toFixed(2);
-            labelContainer.childNodes[i].innerHTML = classPrediction;
+        .glass-card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
         }
-    }
-</script>
+        /* ปรับแต่ง Canvas ของ Webcam ให้โค้งมนสวยงาม */
+        #webcam-container canvas {
+            border-radius: 1rem;
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.5);
+            width: 100% !important;
+            height: auto !important;
+            max-width: 320px;
+            transform: scaleX(-1); /* Flip เพื่อความสมจริง */
+            margin: 0 auto;
+        }
+    </style>
+</head>
+<body class="text-slate-200 min-h-screen flex items-center justify-center p-4 sm:p-6">
+
+    <div class="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- ส่วนหัวข้อหลัก และ ควบคุม -->
+        <div class="lg:col-span-3 text-center lg:text-left flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-800 pb-6">
+            <div>
+                <h1 class="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+                    Teachable Machine Scanner
+                </h1>
+                <p class="text-slate-400 text-sm mt-1">ระบบวิเคราะห์รูปภาพอัตโนมัติทุกๆ 3 นาที</p>
+            </div>
+            <div class="mt-4 sm:mt-0 flex items-center justify-center gap-4">
+                <!-- ตัวนับเวลาถอยหลัง 3 นาที -->
+                <div id="timer-display" class="hidden text-sm bg-slate-900/80 border border-slate-700 px-4 py-2 rounded-full font-mono text-emerald-400 shadow-inner">
+                    Next Scan: 03:00
+                </div>
+                <button type="button" id="btn-start" onclick="init()" class="cursor-pointer bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium px-6 py-2.5 rounded-xl transition-all duration-300 transform hover:-translate-y-0.5 shadow-lg shadow-indigo-500/20 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    Start System
+                </button>
+            </div>
+        </div>
+
+        <!-- ฝั่งซ้าย: กล้อง Webcam Live View -->
+        <div class="glass-card rounded-2xl p-6 flex flex-col items-center justify-center min-h-[350px]">
+            <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <span class="flex h-2 w-2 relative">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                </span>
+                Live Camera
+            </h3>
+            
+            <!-- ที่วางกล้องตอนยังไม่เปิด -->
+            <div id="webcam-placeholder" class="w-[240px] h-[240px] rounded-2xl bg-slate-900/50 border border-dashed border-slate-700 flex flex-col items-center justify-center text-slate-500 text-center p-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mb-2 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 002-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <span class="text-xs">กด Start เพื่อเปิดใช้งานกล้อง</span>
+            </div>
+
+            <div id="webcam-container" class="hidden w-full flex justify-center"></div>
+        </div>
+
+        <!-- ฝั่งขวา: ผลลัพธ์การทำนายล่าสุด (Real-time Preview แบบจางๆ แต่จะเด่นชัดตอนทำงานครบรอบ) -->
+        <div class="glass-card rounded-2xl p-6 flex flex-col justify-between">
+            <div>
+                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">Current Prediction</h3>
+                <div id="label-container" class="space-y-4">
+                    <!-- ประชากรแถบสีความมั่นใจจะถูกสร้างขึ้นที่นี่ด้วย JS -->
+                    <div class="text-slate-500 text-sm italic py-8 text-center">รอการเริ่มต้นระบบ...</div>
+                </div>
+            </div>
+            
+            <!-- แสดงสถานะความเคลื่อนไหวล่าสุด -->
+            <div id="status-bar" class="mt-6 pt-4 border-t border-slate-800/60 text-xs text-slate-500 flex justify-between items-center">
+                <span>Status: Idle</span>
+                <span id="last-update">Last Update: --:--:--</span>
+            </div>
+        </div>
+
+        <!-- ฝั่งขวาสุด/ล่างสุด: Log ประวัติการสแกนทุกๆ 3 นาที -->
+        <div class="glass-card rounded-2xl p-6">
+            <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">Scan History Log (Every 3 Mins)</h3>
+            <div id="log-container" class="space-y-2 max-h-[280px] overflow-y-auto text-xs font-mono scrollbar-thin scrollbar-thumb-slate-700">
+                <div class="text-slate-600 italic">No logs yet. System waiting to start...</div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    
+    <script type="text/javascript">
+        const URL = "https://teachablemachine.withgoogle.com/models/RvhIhkIP-W/";
+        let model, webcam, labelContainer, maxPredictions;
+        let scanInterval;
+        let countdownInterval;
+        const SCAN_DURATION = 3 * 60; // 3 นาทีแปลงเป็นวินาที (180 วินาที)
+        let timeLeft = SCAN_DURATION;
+
+        async function init() {
+            // ซ่อนปุ่ม Start และแสดงตัวนับเวลา
+            document.getElementById("btn-start").classList.add("hidden");
+            document.getElementById("webcam-placeholder").classList.add("hidden");
+            document.getElementById("webcam-container").classList.remove("hidden");
+            
+            const timerDisplay = document.getElementById("timer-display");
+            timerDisplay.classList.remove("hidden");
+
+            // อัปเดตสถานะ
+            updateStatus("Loading AI Model...", "indigo");
+
+            const modelURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+
+            // Setup Webcam
+            const flip = true; 
+            webcam = new tmImage.Webcam(240, 240, flip); 
+            await webcam.setup(); 
+            await webcam.play();
+            
+            // รัน Loop สำหรับให้ภาพบนหน้าจอกล้องขยับลื่นไหลแบบ Real-time
+            window.requestAnimationFrame(loop);
+
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            labelContainer = document.getElementById("label-container");
+            
+            // ล้างข้อความตั้งต้นออกและสร้างโครงสร้าง Progress Bar
+            labelContainer.innerHTML = "";
+            for (let i = 0; i < maxPredictions; i++) {
+                createProgressBarComponent(i);
+            }
+
+            // รันการทายผลครั้งแรกทันทีที่เปิดระบบ
+            await executeTargetPrediction();
+
+            // เริ่มระบบนับถอยหลังทุกๆ 1 วินาที และสั่ง Predict ทุกๆ 3 นาที
+            startTimers();
+        }
+
+        async function loop() {
+            webcam.update(); // อัปเดตเฟรมภาพของกล้องเพื่อให้ภาพเคลื่อนไหวไม่ค้าง
+            window.requestAnimationFrame(loop);
+        }
+
+        // ฟังชันสร้าง UI ส่วนของแถบเปอร์เซ็นต์ผลลัพธ์
+        function createProgressBarComponent(index) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "space-y-1";
+            
+            wrapper.innerHTML = `
+                <div class="flex justify-between text-sm font-medium">
+                    <span id="class-name-${index}" class="text-slate-300">Class ${index+1}</span>
+                    <span id="class-val-${index}" class="text-indigo-400 font-semibold">0%</span>
+                </div>
+                <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
+                    <div id="class-bar-${index}" class="bg-gradient-to-r from-indigo-500 to-purple-500 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            `;
+            labelContainer.appendChild(wrapper);
+        }
+
+        // ฟังก์ชันสั่งการวิเคราะห์ภาพ (จะถูกเรียกหลักๆ ทุกๆ 3 นาที)
+        async function executeTargetPrediction() {
+            updateStatus("Scanning Image...", "purple");
+            
+            const prediction = await model.predict(webcam.canvas);
+            let highestClass = "";
+            let highestProb = -1;
+
+            for (let i = 0; i < maxPredictions; i++) {
+                const className = prediction[i].className;
+                const probability = prediction[i].probability;
+                const percent = (probability * 100).toFixed(0);
+
+                // อัปเดต UI บนหน้าจอ Dashboard หลัก
+                document.getElementById(`class-name-${i}`).innerText = className;
+                document.getElementById(`class-val-${i}`).innerText = percent + "%";
+                document.getElementById(`class-bar-${i}`).style.width = percent + "%";
+
+                if(probability > highestProb) {
+                    highestProb = probability;
+                    highestClass = className;
+                }
+            }
+
+            // บันทึกเวลาที่ทำการสแกนล่าสุด
+            const now = new Date();
+            const timeString = now.toTimeString().split(' ')[0];
+            document.getElementById("last-update").innerText = `Last Update: ${timeString}`;
+            updateStatus("System Monitoring", "emerald");
+
+            // เขียนประวัติลงใน Log Box
+            pushToLog(timeString, highestClass, highestProb);
+        }
+
+        // จัดการเรื่องเวลาและการวนลูปทำงานทุก 3 นาที
+        function startTimers() {
+            // 1. ตั้งตัวนับวินาทีถอยหลังแสดงผลบนหน้าจอ (Countdown)
+            countdownInterval = setInterval(() => {
+                timeLeft--;
+                if (timeLeft < 0) {
+                    timeLeft = SCAN_DURATION; // Reset กลับไป 3 นาที
+                }
+                
+                const minutes = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+                const seconds = (timeLeft % 60).toString().padStart(2, '0');
+                document.getElementById("timer-display").innerText = `Next Scan: ${minutes}:${seconds}`;
+            }, 1000);
+
+            // 2. ตั้งการทำงานหลักให้รันฟังก์ชัน predict ทุกๆ 3 นาที (180,000 ms)
+            scanInterval = setInterval(async () => {
+                await executeTargetPrediction();
+            }, SCAN_DURATION * 1000);
+        }
+
+        // ฟังก์ชันบันทึกประวัติลงในหน้าจอ
+        function pushToLog(time, className, prob) {
+            const logContainer = document.getElementById("log-container");
+            
+            // ลบข้อความเริ่มต้นออกหากเป็นการบันทึกครั้งแรก
+            if(logContainer.querySelector('.italic')) {
+                logContainer.innerHTML = "";
+            }
+
+            const logEntry = document.createElement("div");
+            logEntry.className = "flex items-center justify-between p-2 rounded bg-slate-900/40 border border-slate-800/60 animation-fade-in";
+            
+            const percent = (prob * 100).toFixed(0);
+            
+            logEntry.innerHTML = `
+                <span class="text-slate-500">[${time}]</span>
+                <span class="text-slate-300 font-medium font-sans">Detected: ${className}</span>
+                <span class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-400 font-semibold">${percent}%</span>
+            `;
+            
+            // ใส่บันทึกใหม่ไว้ด้านบนสุด
+            logContainer.insertBefore(logEntry, logContainer.firstChild);
+        }
+
+        // ฟังก์ชันช่วยอัปเดตสถานะการทำงานของระบบบน UI
+        function updateStatus(text, colorTheme) {
+            const statusBar = document.getElementById("status-bar").firstElementChild;
+            statusBar.innerText = `Status: ${text}`;
+            
+            if(colorTheme === "emerald") statusBar.className = "text-emerald-400 font-medium";
+            else if(colorTheme === "purple") statusBar.className = "text-purple-400 font-medium animate-pulse";
+            else if(colorTheme === "indigo") statusBar.className = "text-indigo-400 font-medium";
+        }
+    </script>
+</body>
+</html>
